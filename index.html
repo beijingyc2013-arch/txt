@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090c12">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<title>Spraak naar tekst</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:18px;background:linear-gradient(135deg,#080a0f,#181d29);color:#f5f7fb;font-family:system-ui,-apple-system,sans-serif}
+.app{width:min(720px,100%);padding:28px;background:#11151d;border:1px solid #29303d;border-radius:24px;box-shadow:0 25px 70px #0009}
+h1{margin:0 0 6px;font-size:clamp(26px,6vw,36px)}
+.status{margin:0 0 20px;color:#929baa;min-height:24px}
+#text{min-height:270px;padding:20px;background:#090c12;border:1px solid #29303a;border-radius:16px;font-size:18px;line-height:1.65;white-space:pre-wrap;overflow:auto}
+.controls{display:flex;gap:12px;margin-top:16px}
+button{flex:1;padding:15px;border:0;border-radius:14px;color:#fff;background:#282e39;font:700 16px system-ui;cursor:pointer;transition:.2s}
+button:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.15)}
+button:active:not(:disabled){transform:scale(.98)}
+#start{background:linear-gradient(135deg,#4f7cff,#765cff)}
+button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:500px){.app{padding:20px}.controls{flex-direction:column}}
+</style>
+</head>
+<body>
+<main class="app">
+<h1>Spraak naar tekst</h1>
+<p class="status" id="status">Klaar om te luisteren</p>
+<div id="text" aria-live="polite"></div>
+<div class="controls">
+<button id="start" type="button">Microfoon starten</button>
+<button id="stop" type="button" disabled>Stoppen</button>
+</div>
+</main>
+
+<script>
+"use strict";
+
+const text=document.getElementById("text");
+const status=document.getElementById("status");
+const start=document.getElementById("start");
+const stop=document.getElementById("stop");
+
+const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recognition=null;
+let listening=false;
+let restarting=false;
+let restartTimer=0;
+
+function setStatus(message){
+ status.textContent=message;
+}
+
+function resetButtons(){
+ start.disabled=false;
+ stop.disabled=true;
+}
+
+async function requestMicrophone(){
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+  throw new Error("microphone-api");
+ }
+
+ const stream=await navigator.mediaDevices.getUserMedia({
+  audio:{
+   echoCancellation:true,
+   noiseSuppression:true,
+   autoGainControl:true
+  }
+ });
+
+ stream.getTracks().forEach(track=>track.stop());
+}
+
+function setupRecognition(){
+ if(!Recognition)return false;
+
+ recognition=new Recognition();
+ recognition.lang="nl-NL";
+ recognition.continuous=true;
+ recognition.interimResults=true;
+ recognition.maxAlternatives=1;
+
+ recognition.onstart=()=>{
+  restarting=false;
+  setStatus("Luistert naar de microfoon…");
+  start.disabled=true;
+  stop.disabled=false;
+ };
+
+ recognition.onresult=e=>{
+  let finalText="";
+  let interim="";
+
+  for(let i=e.resultIndex;i<e.results.length;i++){
+   const result=e.results[i];
+   const transcript=result[0]?.transcript||"";
+
+   if(result.isFinal) finalText+=transcript+" ";
+   else interim+=transcript;
+  }
+
+  if(finalText) text.textContent+=finalText;
+
+  if(listening){
+   setStatus(interim?"Luistert: "+interim:"Luistert naar de microfoon…");
+  }
+ };
+
+ recognition.onerror=e=>{
+  if(e.error==="not-allowed"||e.error==="service-not-allowed"){
+   listening=false;
+   clearTimeout(restartTimer);
+   resetButtons();
+   setStatus("Microfoontoegang of spraakherkenning is geblokkeerd.");
+   return;
+  }
+
+  if(e.error==="audio-capture"){
+   listening=false;
+   clearTimeout(restartTimer);
+   resetButtons();
+   setStatus("De microfoon kan niet worden gebruikt.");
+   return;
+  }
+
+  if(e.error==="network"){
+   setStatus("Spraakherkenning kan momenteel geen verbinding maken.");
+   return;
+  }
+
+  if(e.error==="no-speech"&&listening){
+   setStatus("Geen spraak gedetecteerd. Ik blijf luisteren.");
+  }
+ };
+
+ recognition.onend=()=>{
+  if(!listening){
+   resetButtons();
+   setStatus("Klaar om te luisteren");
+   return;
+  }
+
+  if(restarting)return;
+
+  restarting=true;
+  setStatus("Luisteren wordt hervat…");
+
+  clearTimeout(restartTimer);
+  restartTimer=setTimeout(()=>{
+   if(!listening||!recognition)return;
+
+   try{
+    recognition.start();
+   }catch{
+    restarting=false;
+    setStatus("Spraakherkenning kon niet opnieuw worden gestart.");
+   }
+  },500);
+ };
+
+ return true;
+}
+
+async function startRecognition(){
+ if(!recognition){
+  setStatus("Deze Samsung Internet-versie ondersteunt geen spraakherkenning.");
+  return;
+ }
+
+ start.disabled=true;
+ stop.disabled=true;
+ setStatus("Microfoontoestemming aanvragen…");
+
+ try{
+  await requestMicrophone();
+ }catch(error){
+  resetButtons();
+
+  if(error.name==="NotAllowedError"||error.name==="PermissionDeniedError"){
+   setStatus("Microfoontoegang is geweigerd. Geef Samsung Internet toegang tot de microfoon.");
+  }else if(error.name==="NotFoundError"){
+   setStatus("Geen microfoon gevonden.");
+  }else if(error.message==="microphone-api"){
+   setStatus("Deze browser ondersteunt geen microfoontoegang.");
+  }else{
+   setStatus("De microfoon kon niet worden gestart.");
+  }
+
+  return;
+ }
+
+ listening=true;
+ restarting=false;
+ setStatus("Spraakherkenning wordt gestart…");
+
+ try{
+  recognition.start();
+ }catch(error){
+  listening=false;
+  resetButtons();
+  setStatus("De spraakherkenning kon niet worden gestart.");
+ }
+}
+
+function stopRecognition(){
+ listening=false;
+ restarting=false;
+ clearTimeout(restartTimer);
+
+ if(recognition){
+  try{recognition.stop()}catch{}
+ }
+
+ resetButtons();
+ setStatus("Klaar om te luisteren");
+}
+
+if(!window.isSecureContext){
+ setStatus("Open deze PWA via HTTPS.");
+ start.disabled=true;
+}else if(!Recognition){
+ setStatus("Deze Samsung Internet-versie ondersteunt geen spraakherkenning.");
+ start.disabled=true;
+}else{
+ setupRecognition();
+ start.addEventListener("click",startRecognition);
+ stop.addEventListener("click",stopRecognition);
+}
+
+if("serviceWorker"in navigator){
+ navigator.serviceWorker.register("./sw.js").catch(()=>{});
+}
+</script>
+</body>
+</html>

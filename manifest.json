@@ -1,0 +1,21 @@
+{
+  "name":"Spraak naar tekst",
+  "short_name":"Spraaktekst",
+  "description":"Spraak naar tekst als installeerbare PWA.",
+  "lang":"nl-NL",
+  "start_url":"./",
+  "scope":"./",
+  "display":"standalone",
+  "orientation":"portrait",
+  "background_color":"#090c12",
+  "theme_color":"#090c12",
+  "prefer_related_applications":false,
+  "icons":[
+    {
+      "src":"icon.svg",
+      "sizes":"any",
+      "type":"image/svg+xml",
+      "purpose":"any maskable"
+    }
+  ]
+}
